@@ -15,8 +15,12 @@ public class Appointment {
     private String location;
     private String serviceType;
     private String status;
+    private boolean reminderSent = false;
 
     // Getters and Setters
+    public boolean isReminderSent() { return reminderSent; }
+    public void setReminderSent(boolean reminderSent) { this.reminderSent = reminderSent; }
+
     public String getAppointmentId() { return appointmentId; }
     public void setAppointmentId(String appointmentId) { this.appointmentId = appointmentId; }
     
