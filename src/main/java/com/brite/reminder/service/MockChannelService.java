@@ -1,6 +1,5 @@
 package com.brite.reminder.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -20,8 +19,6 @@ public class MockChannelService {
 
     @Value("${OUTBOX_PATH:outbox.jsonl}")
     private String outboxPath;
-
-    private final ObjectMapper objectMapper = new ObjectMapper();
 
     private double roll(Object... parts) {
         try {
@@ -61,23 +58,30 @@ public class MockChannelService {
     }
 
     private Map<String, String> log(String channel, String to, String body, LocalDateTime at, String status, String detail) {
-        Map<String, String> record = new HashMap<>();
-        record.put("channel", channel);
-        record.put("to", to);
-        record.put("at", at != null ? at.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME) : "");
-        record.put("body_preview", body != null && body.length() > 60 ? body.substring(0, 60) : (body == null ? "" : body));
-        record.put("status", status);
-        record.put("detail", detail == null ? "" : detail);
+        String atStr = at != null ? at.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME) : "";
+        String bodyPreview = body != null && body.length() > 60 ? body.substring(0, 60) : (body == null ? "" : body);
+        String detailStr = detail == null ? "" : detail;
+
+        // Manually build JSON to avoid Jackson dependency issues
+        String json = String.format(
+            "{\"channel\":\"%s\",\"to\":\"%s\",\"at\":\"%s\",\"body_preview\":\"%s\",\"status\":\"%s\",\"detail\":\"%s\"}",
+            channel.replace("\"", "\\\""),
+            to.replace("\"", "\\\""),
+            atStr.replace("\"", "\\\""),
+            bodyPreview.replace("\"", "\\\"").replace("\n", "\\n").replace("\r", ""),
+            status.replace("\"", "\\\""),
+            detailStr.replace("\"", "\\\"")
+        );
 
         try (PrintWriter out = new PrintWriter(new FileWriter(outboxPath, true))) {
-            out.println(objectMapper.writeValueAsString(record));
+            out.println(json);
         } catch (IOException e) {
             // Ignore error
         }
 
         Map<String, String> result = new HashMap<>();
         result.put("status", status);
-        result.put("detail", detail == null ? "" : detail);
+        result.put("detail", detailStr);
         return result;
     }
 
