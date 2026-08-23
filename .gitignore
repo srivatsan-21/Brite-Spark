@@ -37,3 +37,13 @@ out/
 .vscode/
 
 .env
+
+# Runtime data
+outbox.jsonl
+
+# OS generated files
+.DS_Store
+.DS_Store?
+
+# Log files
+*.log
