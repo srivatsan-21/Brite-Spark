@@ -48,6 +48,13 @@ public class DataImportService {
                 c.setVoiceOptout(values[7]);
                 c.setEmailOptout(values[8]);
                 c.setNumberLastVerified(values[9]);
+                
+                // Mock an FCM Token if the user has a mobile phone
+                if (c.getMobile() != null && !c.getMobile().isEmpty()) {
+                    c.setFcmToken("mock_fcm_token_" + c.getMobile());
+                    c.setPushOptout("N");
+                }
+                
                 contactRepository.save(c);
             }
         } catch (Exception e) {

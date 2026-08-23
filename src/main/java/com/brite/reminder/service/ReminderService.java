@@ -23,6 +23,9 @@ public class ReminderService {
     @Autowired
     private StrictMessagingGateway strictMessagingGateway;
 
+    @Autowired
+    private HistoryService historyService;
+
     // Trigger process
     public void processReminders() {
         List<Appointment> pending = appointmentRepository.findAll().stream()
@@ -30,11 +33,15 @@ public class ReminderService {
                 .toList();
 
         LocalDateTime now = LocalDateTime.now();
+        
+        // 1. Get recent contact counts per contact point
+        Map<String, Integer> countsByPoint = historyService.getRecentContactCounts(now, 7);
 
         // Stats tracking
         int totalProcessed = 0;
         int languageFallbacks = 0;
         int successfullyReached = 0;
+        int rateLimitPrevented = 0;
 
         // Group appointments by Resident ID first
         Map<String, List<Appointment>> byResident = pending.stream()
@@ -47,6 +54,24 @@ public class ReminderService {
         for (Map.Entry<String, List<Appointment>> entry : byResident.entrySet()) {
             Contact contact = contactRepository.findById(entry.getKey()).orElse(null);
             if (contact == null) continue;
+            
+            // Calculate past contacts for this resident's contact points
+            Set<String> uniquePoints = new HashSet<>();
+            if (contact.getMobile() != null && !contact.getMobile().isEmpty()) uniquePoints.add(contact.getMobile());
+            if (contact.getLandline() != null && !contact.getLandline().isEmpty()) uniquePoints.add(contact.getLandline());
+            if (contact.getEmail() != null && !contact.getEmail().isEmpty()) uniquePoints.add(contact.getEmail());
+            
+            int pastContacts = 0;
+            for (String p : uniquePoints) {
+                pastContacts += countsByPoint.getOrDefault(p, 0);
+            }
+            
+            // Enforce limit: max 2 contacts in 7 days
+            if (pastContacts >= 2) {
+                rateLimitPrevented += entry.getValue().size();
+                System.out.println("[RateLimit] Prevented contact for resident " + entry.getKey() + " (had " + pastContacts + " past contacts). Appointments prevented: " + entry.getValue().size());
+                continue; // Skip this resident
+            }
 
             String contactPoint = determinePrimaryContactPoint(contact);
             if (contactPoint == null) continue; // Unreachable
@@ -87,6 +112,7 @@ public class ReminderService {
         System.out.println("Total Appointments Processed: " + totalProcessed);
         System.out.println("Appointments Reached: " + successfullyReached);
         System.out.println("Language Fallbacks (to English): " + languageFallbacks);
+        System.out.println("Rate Limit Prevented (Appointments): " + rateLimitPrevented);
         System.out.println("=================================");
     }
 

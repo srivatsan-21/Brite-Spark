@@ -939,3 +939,6 @@ AP-70107,RS-4115,2026-03-31 15:00,Northgate,Debt advice,Booked
 AP-70793,RS-4337,2026-03-31 15:00,Northgate,Health assessment,Booked
 AP-70083,RS-4169,2026-03-31 15:30,Ash Hill,Health assessment,Booked
 AP-70167,RS-4376,2026-03-31 16:00,Calder Central,Evidence appointment,Booked
+APP_NEW,NEW_USER,2026-09-01 10:00,Test Location,Test Service,Booked
+
+APT-9999,RS-9999,2026-08-25 10:00,Central,Consultation,Booked

@@ -18,8 +18,16 @@ public class Contact {
     private String voiceOptout;
     private String emailOptout;
     private String numberLastVerified;
+    private String fcmToken;
+    private String pushOptout;
 
     // Getters and Setters
+    public String getFcmToken() { return fcmToken; }
+    public void setFcmToken(String fcmToken) { this.fcmToken = fcmToken; }
+
+    public String getPushOptout() { return pushOptout; }
+    public void setPushOptout(String pushOptout) { this.pushOptout = pushOptout; }
+
     public String getResidentId() { return residentId; }
     public void setResidentId(String residentId) { this.residentId = residentId; }
     

@@ -13,11 +13,20 @@ public class StrictMessagingGateway {
     @Autowired
     private MockChannelService mockChannelService;
 
+    @Autowired
+    private PushNotificationService pushNotificationService;
+
     public boolean send(Contact contact, String message, LocalDateTime now) {
         // Enforce Quiet Hours: 8 PM to 8 AM
         if (now.getHour() >= 20 || now.getHour() < 8) {
             System.out.println("[Gateway] Blocked message to " + contact.getResidentId() + " due to Quiet Hours.");
             return false; 
+        }
+
+        // Try Push Notification (if they have an FCM token and haven't opted out)
+        if (!"Y".equalsIgnoreCase(contact.getPushOptout()) && contact.getFcmToken() != null && !contact.getFcmToken().isEmpty()) {
+            boolean pushSent = pushNotificationService.sendPushNotification(contact.getFcmToken(), "Appointment Reminder", message);
+            if (pushSent) return true;
         }
 
         // Try SMS (if not opted out)
