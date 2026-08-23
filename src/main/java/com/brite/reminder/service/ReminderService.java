@@ -8,8 +8,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 public class ReminderService {
@@ -21,7 +21,7 @@ public class ReminderService {
     private ContactRepository contactRepository;
 
     @Autowired
-    private MockChannelService mockChannelService;
+    private StrictMessagingGateway strictMessagingGateway;
 
     // Trigger process
     public void processReminders() {
@@ -30,59 +30,90 @@ public class ReminderService {
                 .toList();
 
         LocalDateTime now = LocalDateTime.now();
-        // Quiet hours: 8 PM to 8 AM
-        if (now.getHour() >= 20 || now.getHour() < 8) {
-            System.out.println("Quiet hours active. Aborting reminder run.");
-            return;
-        }
 
-        for (Appointment appt : pending) {
-            Contact contact = contactRepository.findById(appt.getResidentId()).orElse(null);
+        // Stats tracking
+        int totalProcessed = 0;
+        int languageFallbacks = 0;
+        int successfullyReached = 0;
+
+        // Group appointments by Resident ID first
+        Map<String, List<Appointment>> byResident = pending.stream()
+                .collect(Collectors.groupingBy(Appointment::getResidentId));
+
+        // Now group by the contact point (e.g., mobile number) to handle duplicates
+        Map<String, List<Appointment>> byContactPoint = new HashMap<>();
+        Map<String, Contact> pointToContact = new HashMap<>();
+
+        for (Map.Entry<String, List<Appointment>> entry : byResident.entrySet()) {
+            Contact contact = contactRepository.findById(entry.getKey()).orElse(null);
             if (contact == null) continue;
 
-            String template = getMessageTemplate(contact.getLanguage(), appt);
-            boolean sent = trySend(contact, template, now);
+            String contactPoint = determinePrimaryContactPoint(contact);
+            if (contactPoint == null) continue; // Unreachable
+
+            byContactPoint.computeIfAbsent(contactPoint, k -> new ArrayList<>()).addAll(entry.getValue());
+            pointToContact.put(contactPoint, contact); // Use the first contact object found for this point
+        }
+
+        // Process each contact point
+        for (Map.Entry<String, List<Appointment>> entry : byContactPoint.entrySet()) {
+            String contactPoint = entry.getKey();
+            List<Appointment> appointments = entry.getValue();
+            Contact contact = pointToContact.get(contactPoint);
+
+            totalProcessed += appointments.size();
+
+            // Language checking
+            String lang = contact.getLanguage();
+            if (lang == null || (!lang.equals("en") && !lang.equals("es"))) {
+                languageFallbacks++;
+                lang = "en"; // silent fallback per requirements handling (but we track it!)
+            }
+
+            String consolidatedMessage = buildConsolidatedMessage(lang, appointments);
+            boolean sent = strictMessagingGateway.send(contact, consolidatedMessage, now);
+            
             if (sent) {
-                appt.setReminderSent(true);
-                appointmentRepository.save(appt);
+                successfullyReached += appointments.size();
+                for (Appointment appt : appointments) {
+                    appt.setReminderSent(true);
+                    appointmentRepository.save(appt);
+                }
             }
         }
+
+        // Output measurable success report
+        System.out.println("====== REMINDER JOB REPORT ======");
+        System.out.println("Total Appointments Processed: " + totalProcessed);
+        System.out.println("Appointments Reached: " + successfullyReached);
+        System.out.println("Language Fallbacks (to English): " + languageFallbacks);
+        System.out.println("=================================");
     }
 
-    private boolean trySend(Contact contact, String message, LocalDateTime now) {
-        // Try SMS
+    private String determinePrimaryContactPoint(Contact contact) {
         if (!"Y".equalsIgnoreCase(contact.getSmsOptout()) && contact.getMobile() != null && !contact.getMobile().isEmpty()) {
-            Map<String, String> res = mockChannelService.sendSms(contact.getMobile(), message, now, 1);
-            if ("delivered".equals(res.get("status"))) return true;
+            return "MOBILE:" + contact.getMobile();
         }
-        
-        // Try Voice
-        if (!"Y".equalsIgnoreCase(contact.getVoiceOptout())) {
-            String number = (contact.getLandline() != null && !contact.getLandline().isEmpty()) ? contact.getLandline() : contact.getMobile();
-            if (number != null && !number.isEmpty()) {
-                Map<String, String> res = mockChannelService.sendVoice(number, message, now, 1);
-                if ("answered".equals(res.get("status"))) return true;
-            }
+        if (!"Y".equalsIgnoreCase(contact.getVoiceOptout()) && contact.getLandline() != null && !contact.getLandline().isEmpty()) {
+            return "VOICE:" + contact.getLandline();
         }
-
-        // Try Email
         if (!"Y".equalsIgnoreCase(contact.getEmailOptout()) && contact.getEmail() != null && !contact.getEmail().isEmpty()) {
-            Map<String, String> res = mockChannelService.sendEmail(contact.getEmail(), message, now, 1);
-            if ("delivered".equals(res.get("status"))) return true;
+            return "EMAIL:" + contact.getEmail();
         }
-        
-        return false;
+        return null;
     }
 
-    private String getMessageTemplate(String lang, Appointment appt) {
-        // Fallback to english if language is unsupported or null
-        if (lang == null || (!lang.equals("en") && !lang.equals("es"))) {
-            lang = "en"; // silent fallback per requirements handling
-        }
-        
+    private String buildConsolidatedMessage(String lang, List<Appointment> appointments) {
+        StringBuilder sb = new StringBuilder();
         if ("es".equals(lang)) {
-            return "Recordatorio de cita: " + appt.getScheduledAt().toString();
+            sb.append("Recordatorio de cita:\n");
+        } else {
+            sb.append("Appointment reminder:\n");
         }
-        return "Appointment reminder: " + appt.getScheduledAt().toString();
+
+        for (Appointment appt : appointments) {
+            sb.append("- ").append(appt.getScheduledAt().toString()).append(" at ").append(appt.getLocation()).append("\n");
+        }
+        return sb.toString();
     }
 }
